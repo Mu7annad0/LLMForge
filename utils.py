@@ -1,7 +1,6 @@
 import torch
 
 def generate_text_simple(model, idx, max_new_tokens, context_size):
-
     """
     This function generates text using a simple method. 
     It takes a model, an index sequence, the maximum number of new tokens to generate, and the size of the context.
