@@ -5,7 +5,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from Models.GPT import GPTModel
-from utils import calc_loss_loader, generate_and_print_text, create_dataloader_v1, plot_losses
+from utils import calc_loss_loader, generate_and_print_text, create_dataloader_v1
 
 
 def train_model(model, tokenizer, train_loader, val_loader, optimizer, device, num_epochs, eval_freq, eval_iter, start_context):
