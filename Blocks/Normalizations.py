@@ -36,9 +36,12 @@ class RMSNormalization(nn.Module):
         """
         super().__init__()
         self.eps = eps
-        self.scale = nn.Parameter(torch.ones(dim)).float()
+        self.weight = nn.Parameter(torch.ones(dim)).float()
 
     def forward(self, x):
+        # Calculate the root mean square for each sample in the batch
         rms = torch.sqrt(self.eps + torch.mean(x**2, dim=-1, keepdim=True))
+        # Normalize the input
         x_norm = x / rms
-        return x_norm * self.scale
+        # Apply the learnable scale factor
+        return x_norm * self.weight
