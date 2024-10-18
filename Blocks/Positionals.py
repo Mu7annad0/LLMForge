@@ -5,22 +5,23 @@ import math
 
 class PositionalEncoder(nn.Module):
     
-    def __init__(self, d_model, max_seq_length):
+    def __init__(self, dim, max_seq_length):
         """
-        :param d_model: the size of each embedding vector
-        :param max_seq_length: the maximum length of the input sequence
+        Args:
+            :param dim: The dimension of the embedding
+            :param max_seq_length: The maximum sequence length.
         """
         super().__init__()
 
-        # create a matrix of shape (max_length, d_model)
-        pe = torch.zeros(max_seq_length, d_model)
+        # create a matrix of shape --> [max_length, d_model]
+        pe = torch.zeros(max_seq_length, dim)
         position = torch.arange(0, max_seq_length, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2)).float() * (-math.log(10000.0) / d_model)
+        div_term = torch.exp(torch.arange(0, dim, 2)).float() * (-math.log(10000.0) / dim)
 
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
 
-        pe = pe.unsqueeze(0)  # (1, seq_length, d_model)
+        pe = pe.unsqueeze(0)  # --> [1, seq_length, d_model]
         self.register_buffer('pe', pe)
 
     def forward(self, x):
@@ -28,3 +29,40 @@ class PositionalEncoder(nn.Module):
         # Add the positional encoding to the input tensor (x)
         x = x + self.pe[:, :x.size(1)]
         return x
+    
+
+
+class RotaryPositionalEmbedding(nn.Module):
+
+    def __init__(self, dim, base=10000):
+        """
+        RotaryPositionalEmbedding is a method for encoding positions in a sequence. It uses a rotary embedding approach, 
+        where the embedding is rotated based on the position in the sequence. This allows the model to capture position information 
+        in a more efficient and effective way, especially for longer sequences.
+
+        Args:
+            :param dim: The dimension of the embedding
+            :param base: Base frequency for sinusoidal embeddings (default: 10000).
+        """
+        super().__init__()
+        assert dim % 2 == 0, "Dimension of model must be even for rotary embeddings"
+        inv_freq = 1. / (base ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer('inv_freq', inv_freq)
+
+    def forward(self, x, max_seq_length=None):
+        if max_seq_length is None:
+            max_seq_length = x.size(1)
+            
+        # Compute position encodings --> [max_seq_length, dim // 2]
+        t = torch.arange(max_seq_length, device=x.device).type_as(self.inv_freq)
+        freqs = torch.einsum('i,j->ij', t, self.inv_freq)
+
+        # Duplicate frequencies to match the dimensionality of x --> [max_seq_length. dim]
+        emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
+
+        # Split x into two parts for even and odd indices, and embedding into sin and cosine parts
+        x1, x2 = x[..., ::2], x[..., 1::2]
+        sin, cos = emb[..., ::2], emb[..., 1::2]
+
+        x_out = torch.cat((x1 * cos - x2 * sin, x1 * sin + x2 * cos), dim=-1) # Apply the rotary encoding
+        return x_out # --> [batch_size, max_seq_length, dim]
