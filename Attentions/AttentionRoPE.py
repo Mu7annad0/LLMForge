@@ -76,4 +76,4 @@ class MultiHeadAttentionRoPE(nn.Module):
 # print(f"Input shape: {x.shape}")
 # print(f"Output shape: {output.shape}")
 
-# python -m Attentions.MultiHead_Attention_RoPE
+# python -m Attentions.AttentionRoPE
