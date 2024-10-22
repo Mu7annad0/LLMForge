@@ -15,7 +15,7 @@ class MultiHeadAttentionRoPE(nn.Module):
         self.w_q = nn.Linear(d_in, d_out, bias=qkv, dtype=dtype)
         self.w_k = nn.Linear(d_in, d_out, bias=qkv, dtype=dtype)
         self.w_v = nn.Linear(d_in, d_out, bias=qkv, dtype=dtype)
-        self.w = nn.Linear(d_out, d_in)
+        self.w = nn.Linear(d_out, d_in, bias=qkv, dtype=dtype)
         self.register_buffer(
             "mask", torch.triu(torch.ones(context_length, context_length), diagonal=1)
         )
