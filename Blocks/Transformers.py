@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from Attentions.MultiHeadAttention import MultiHeadAttention
+from Attentions.CausalAttention import CausalAttention
 from Attentions.AttentionRoPE import MultiHeadAttentionRoPE
 from .FeedForwards import GPTFeedForward, LlamaFeedForward
 from .Activations import GELU
@@ -12,7 +12,7 @@ class GPTTransformer(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.attn = MultiHeadAttention(
+        self.attn = CausalAttention(
             embed_dim=cfg.embed_dim,
             context_length=cfg.context_length,
             dropout=cfg.drop_rate,
@@ -21,7 +21,7 @@ class GPTTransformer(nn.Module):
         )
         self.ffn = GPTFeedForward(cfg)
         self.lnorm = LayerNormalization(cfg.embed_dim)
-        self.gelu = GELU()
+        self.gelu = nn.GELU(approximate="tanh")
         self.drop = nn.Dropout(cfg.drop_rate)
 
     def forward(self, x):
