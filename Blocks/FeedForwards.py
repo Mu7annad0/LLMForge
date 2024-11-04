@@ -19,7 +19,7 @@ class GPTFeedForward(nn.Module):
         # Define the sequence of layers for the feed forward block
         self.layers = nn.Sequential(
             nn.Linear(cfg.embed_dim, 4 * cfg.embed_dim),  # First linear layer expands the dimension by a factor of 4
-            GELU(),  # GELU activation function for non-linearity
+            nn.GELU(approximate="tanh"),  # GELU activation function for non-linearity
             nn.Linear(4 * cfg.embed_dim, cfg.embed_dim)  # Second linear layer reduces the dimension back to the original size
         )
 
