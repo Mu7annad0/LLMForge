@@ -13,8 +13,7 @@ class GPTTransformer(nn.Module):
         super().__init__()
 
         self.attn = MultiHeadAttention(
-            d_in=cfg.embed_dim,
-            d_out=cfg.embed_dim,
+            embed_dim=cfg.embed_dim,
             context_length=cfg.context_length,
             dropout=cfg.drop_rate,
             num_heads=cfg.n_heads,
