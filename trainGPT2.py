@@ -12,6 +12,7 @@ from Blocks.Normalizations import LayerNormalization
 from Blocks.Configs import GPT_CONFIG_124M
 
 
+# Define the GPT2 model class
 class GPT2(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -23,7 +24,8 @@ class GPT2(nn.Module):
         )
         self.lnorm = LayerNormalization(cfg.embed_dim)
         self.output_layer = nn.Linear(cfg.embed_dim, cfg.vocab_size)
-        # weight sharing scheme
+        
+        # Weight sharing scheme
         self.token_embed.weight = self.output_layer.weight
 
     def forward(self, x, targets=None):
@@ -45,6 +47,7 @@ class GPT2(nn.Module):
         return logits, loss
 
 
+# Define a lightweight data loader class
 class DataLoaderLite:
     def __init__(self, B, T, split="train"):
         self.B = B
@@ -54,6 +57,7 @@ class DataLoaderLite:
         file_path = "Hamlet.txt"
         url = "https://raw.githubusercontent.com/Mu7annad0/LLMForge/refs/heads/main/Hamlet.txt"
         
+        # Download or load the dataset
         if not os.path.exists(file_path):
             with urllib.request.urlopen(url) as response:
                 text = response.read().decode('utf-8')
@@ -67,7 +71,7 @@ class DataLoaderLite:
         tokens = enc.encode(text)
         all_tokens = torch.tensor(tokens)
         
-        # Split into train (80%) and validation (20%) 
+        # Split into train (80%) and validation (20%)
         split_idx = int(0.8 * len(all_tokens))
         
         if split == "train":
@@ -97,17 +101,13 @@ class DataLoaderLite:
         return self.n_batches
 
 
+# Utility functions
 def get_device():
-    # Default to CPU
     device = "cpu"
-
-    # Check for CUDA availability
     if torch.cuda.is_available():
         device = "cuda"
-    # Check for MPS availability (Apple Silicon)
     elif torch.backends.mps.is_available():
         device = "mps"
-
     print(f"Using device: {device}")
     return device
 
@@ -119,36 +119,15 @@ def set_seed(seed=2049):
     elif torch.backends.mps.is_available():
         torch.mps.manual_seed(seed)
 
-set_seed()
-
-batch_size, max_seq_length = 8, 128
-total_batch_size = 524288
-
-train_loader = DataLoaderLite(batch_size, max_seq_length)
-valid_loader = DataLoaderLite(batch_size, max_seq_length, "val")
-
-torch.set_float32_matmul_precision("high")
-
-Model = GPT2(GPT_CONFIG_124M(vocab_size=50304))
-
-warmup_steps = 10
-max_steps = 50
-max_lr = 6e-4
-min_lr = max_lr * 0.1
-
 
 def get_lr(iter):
-    # Linear warmup phase
     if iter < warmup_steps:
         return max_lr * (iter + 1) / warmup_steps
-    
-    # Cosine decay phase
     decay_ratio = min(1.0, (iter - warmup_steps) / (max_steps - warmup_steps))
     return min_lr + 0.5 * (max_lr - min_lr) * (1.0 + math.cos(math.pi * decay_ratio))
 
 
-grad_accum_steps = 1
-
+# Training function
 def train_gpt():
     device = get_device()
     Model.to(device)
@@ -158,49 +137,59 @@ def train_gpt():
 
     for step in tqdm(range(max_steps), desc='Training'):
         t0 = time.time()
-        
-        # Reset gradients and loss accumulation for each step
         optimizer.zero_grad()
         loss_accumulation = 0.0
 
         with tqdm(total=grad_accum_steps, desc=f'Step {step + 1}/{max_steps}', leave=False) as micro_progress:
-        # Perform forward and backward passes over `grad_accum_steps` micro-batches
             for _ in range(grad_accum_steps):
-                # Get batch and move to device
                 x, y = train_loader.next_batch()
                 x, y = x.to(device), y.to(device)
                 
                 with torch.autocast(device_type=device, dtype=torch.bfloat16):
                     logits, loss = Model(x, y)
                 
-                loss /= grad_accum_steps  # Scale the loss
-                loss_accumulation += loss.detach()  # Accumulate loss for logging
-                loss.backward()  # Accumulate gradients
-                # Update the micro-step progress bar
+                loss /= grad_accum_steps
+                loss_accumulation += loss.detach()
+                loss.backward()
                 micro_progress.set_postfix({
                     'loss': f'{loss.item():.4f}',
                     'lr': f'{get_lr(step):.6f}'
                 })
                 micro_progress.update(1)
-        # Apply gradient clipping and optimization
+        
         norm = nn.utils.clip_grad_norm_(Model.parameters(), 1.0)
         lr = get_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         optimizer.step()
 
-        # Synchronize device for accurate timing
         if device in ['cuda', 'mps']:
             torch.cuda.synchronize() if device == 'cuda' else torch.mps.synchronize()
 
-        # Calculate elapsed time and tokens per second
-        dt = (time.time() - t0) * 1000  # Time in milliseconds
+        dt = (time.time() - t0) * 1000
         tokens_per_sec = (batch_size * max_seq_length * grad_accum_steps) / (dt / 1000)
 
-        # Print data for each step in the desired format
         print(f"Step {step + 1}/{max_steps} - loss: {loss_accumulation.item():.5f}, norm: {norm:.4f}, "
-            f"lr: {lr:.6f}, dt: {dt:.2f}ms, tokens/sec: {tokens_per_sec:.0f}")
+              f"lr: {lr:.6f}, dt: {dt:.2f}ms, tokens/sec: {tokens_per_sec:.0f}")
 
 
+# Main script
 if __name__ == "__main__":
+    set_seed()
+
+    batch_size, max_seq_length = 8, 128
+    total_batch_size = 524288
+
+    train_loader = DataLoaderLite(batch_size, max_seq_length, "train")
+    valid_loader = DataLoaderLite(batch_size, max_seq_length, "val")
+
+    torch.set_float32_matmul_precision("high")
+
+    Model = GPT2(GPT_CONFIG_124M(vocab_size=50304))
+
+    warmup_steps = 10
+    max_steps = 50
+    max_lr = 6e-4
+    min_lr = max_lr * 0.1
+
     train_gpt()
