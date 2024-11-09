@@ -137,9 +137,28 @@ def train_gpt():
 
     for step in tqdm(range(max_steps), desc='Training'):
         t0 = time.time()
+        last_step = (step == max_steps - 1)
+
+        # Evaluate model on validation set every 100 steps or at the last step
+        if step % 100 == 0 or last_step:
+                Model.eval()
+                with torch.no_grad():
+                    val_loss_accumulation = 0.0
+                    val_loss_steps = 20
+                    with tqdm(total=grad_accum_steps, desc='Validation', leave=False) as val_progress:
+                        x, y = valid_loader.next_batch()
+                        x, y = x.to(device), y.to(device)
+
+                        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+                            logits, loss = Model(x, y)
+                        loss /= val_loss_steps
+                        val_loss_accumulation += loss.detach()
+                print(f"-->> Validation loss: {val_loss_accumulation.item():.5f}")
+            
+        # train the model 
+        Model.train()
         optimizer.zero_grad()
         loss_accumulation = 0.0
-
         with tqdm(total=grad_accum_steps, desc=f'Step {step + 1}/{max_steps}', leave=False) as micro_progress:
             for _ in range(grad_accum_steps):
                 x, y = train_loader.next_batch()
@@ -188,7 +207,7 @@ if __name__ == "__main__":
     Model = GPT2(GPT_CONFIG_124M(vocab_size=50304))
 
     warmup_steps = 10
-    max_steps = 50
+    max_steps = 200
     max_lr = 6e-4
     min_lr = max_lr * 0.1
 
