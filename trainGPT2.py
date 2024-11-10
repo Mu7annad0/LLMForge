@@ -15,34 +15,66 @@ from Blocks.Configs import GPT_CONFIG_124M
 # Define the GPT2 model class
 class GPT2(nn.Module):
     def __init__(self, cfg):
+        """
+        Initializes the GPT-2 model with the specified configuration.
+
+        Args:
+        cfg: A configuration object that includes:
+            - vocab_size (int): The size of the vocabulary.
+            - embed_dim (int): The dimensionality of the embeddings.
+            - context_length (int): The maximum length of input sequences.
+            - drop_rate (float): Dropout rate to use in the model.
+            - n_layers (int): Number of transformer layers.
+        """
         super().__init__()
+
+        # Token and positional embedding layers
         self.token_embed = nn.Embedding(cfg.vocab_size, cfg.embed_dim)
         self.pos_embed = nn.Embedding(cfg.context_length, cfg.embed_dim)
+        # Dropout layer for regularization
         self.drop = nn.Dropout(cfg.drop_rate)
+        # Stack of transformer blocks
         self.transformer_blocks = nn.Sequential(
             *[GPTTransformer(cfg) for _ in range(cfg.n_layers)]
         )
+        # Layer normalization before final output
         self.lnorm = LayerNormalization(cfg.embed_dim)
+        # Output projection layer to map to vocabulary size
         self.output_layer = nn.Linear(cfg.embed_dim, cfg.vocab_size)
-        
         # Weight sharing scheme
         self.token_embed.weight = self.output_layer.weight
 
     def forward(self, x, targets=None):
+        """
+        Forward pass of the GPT-2 model.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, sequence_length).
+            targets (torch.Tensor, optional): Target tensor for computing loss, 
+                                           of shape (batch_size, sequence_length).
+
+        Returns:
+            logits (torch.Tensor): Output logits of shape (batch_size, sequence_length, vocab_size).
+            loss: Cross-entropy loss if targets are provided; otherwise, None.
+        """
         B, seq_len = x.shape
+        # Create token and positional embeddings
         token_embed = self.token_embed(x)
         pos_embed = self.pos_embed(torch.arange(seq_len, device=x.device))
+        # Combine token and positional embeddings and apply dropout
         x = token_embed + pos_embed
         x = self.drop(x)
+        # Pass through the stack of transformer blocks
         x = self.transformer_blocks(x)
+        # Apply final layer normalization
         x = self.lnorm(x)
         logits = self.output_layer(x)
-        
+        # Compute loss if targets are provided
         loss = None
         if targets is not None:
             loss = nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)), 
-                targets.view(-1)
+                logits.view(-1, logits.size(-1)), # Reshape logits for cross-entropy
+                targets.view(-1) # Reshape targets to match logits
             )
         return logits, loss
 
@@ -50,10 +82,19 @@ class GPT2(nn.Module):
 # Define a lightweight data loader class
 class DataLoaderLite:
     def __init__(self, B, T, split="train"):
+        """
+        Lightweight data loader for tokenized text data, supporting train/validation splits.
+
+        Args:
+            B (int): Batch size.
+            T (int): Sequence length.
+            split (str): 'train' or 'val' to specify data split.
+        """
         self.B = B
         self.T = T
         self.split = split
 
+        # File path and URL for the dataset
         file_path = "Hamlet.txt"
         url = "https://raw.githubusercontent.com/Mu7annad0/LLMForge/refs/heads/main/Hamlet.txt"
         
@@ -67,6 +108,7 @@ class DataLoaderLite:
             with open(file_path, "r", encoding="utf-8") as file:
                 text = file.read()
 
+        # Tokenize the text using GPT-2's encoding
         enc = tiktoken.get_encoding("gpt2")
         tokens = enc.encode(text)
         all_tokens = torch.tensor(tokens)
@@ -80,7 +122,8 @@ class DataLoaderLite:
             self.tokens = all_tokens[split_idx:]
         else:
             raise ValueError("Split must be either 'train' or 'val'")
-            
+        
+        # Initialize the position tracker for the next batch
         self.current_position = 0
         
         print(f"Total number of tokens for {split}: {len(self.tokens)}")
@@ -88,10 +131,21 @@ class DataLoaderLite:
         print(f"Number of batches per epoch for {split}: {self.n_batches}")
 
     def next_batch(self):
+        """
+        Retrieves the next batch of data for training/validation.
+
+        Returns:
+            x (torch.Tensor): Input tensor of shape (B, T).
+            y (torch.Tensor): Target tensor of shape (B, T), shifted by one token.
+        """
         B, T = self.B, self.T
+
+        # Extract a buffer of tokens and create input (x) and target (y) tensors
         buf = self.tokens[self.current_position:self.current_position + B*T + 1]
-        x = (buf[:-1]).view(B, T)
-        y = (buf[1:]).view(B, T)
+        x = (buf[:-1]).view(B, T) # Input tokens
+        y = (buf[1:]).view(B, T)  # Target tokens, shifted one position
+
+        # Update position for the next batch, resetting if at the end of data
         self.current_position += B * T
         if self.current_position + (B * T + 1) > len(self.tokens):
             self.current_position = 0
@@ -103,6 +157,12 @@ class DataLoaderLite:
 
 # Utility functions
 def get_device():
+    """
+    Determines the available device for PyTorch computations.
+
+    Returns:
+    str: The device string, either 'cuda', 'mps', or 'cpu'.
+    """
     device = "cpu"
     if torch.cuda.is_available():
         device = "cuda"
@@ -121,35 +181,53 @@ def set_seed(seed=2049):
 
 
 # Set the learning rate of each parameter group using a cosine annealing schedule.
-def CosineAnnealingLR(iter):
+def get_cosine_annealed_lr(iter):
+    """
+    Computes the learning rate using a cosine annealing schedule with an initial warm-up phase.
+
+    Args:
+        iter (int): Current training iteration (step).
+
+    Returns:
+        float: Computed learning rate for the given iteration.
+    """
+    # If we're still in the warm-up phase, gradually increase the learning rate from 0 to max_lr.
     if iter < warmup_steps:
         return max_lr * (iter + 1) / warmup_steps
+    # Calculate the ratio of progress after the warmup phase
+    # decay_ratio ranges from 0 to 1 as iter goes from warmup_steps to max_steps
     decay_ratio = min(1.0, (iter - warmup_steps) / (max_steps - warmup_steps))
+    # Return the learning rate following a cosine decay function
+    # The cosine function smoothly decays the learning rate from max_lr to min_lr
     return min_lr + 0.5 * (max_lr - min_lr) * (1.0 + math.cos(math.pi * decay_ratio))
 
 
 # Training function
 def train_gpt():
+    # Get the device (CPU, CUDA, or MPS) and move the model to that device
     device = get_device()
     Model.to(device)
+    # Initialize the optimizer with AdamW
     optimizer = torch.optim.AdamW(Model.parameters(), weight_decay=0.1, lr=3e-4, betas=(0.9, 0.95))
+    # Calculate gradient accumulation steps based on total batch size
     grad_accum_steps = total_batch_size // (batch_size * max_seq_length)
     print(f"Gradient accumulation steps: {grad_accum_steps}")
 
-    # Create a directory for logging
+    # Set up the logging directory and file
     log_dir = "log"
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, f"log.txt")
     with open(log_file, "w") as f:
-        pass
+        pass # Create or clear the log file
 
+    # Training loop
     for step in tqdm(range(max_steps), desc='Training'):
         t0 = time.time()
         last_step = (step == max_steps - 1)
 
         # Evaluate model on validation set every 100 steps or at the last step
         if step % 100 == 0 or last_step:
-                Model.eval()
+                Model.eval() # Set model to evaluation mode
                 with torch.no_grad():
                     val_loss_accumulation = 0.0
                     val_loss_steps = 20
@@ -159,10 +237,10 @@ def train_gpt():
 
                         with torch.autocast(device_type=device, dtype=torch.bfloat16):
                             logits, loss = Model(x, y)
-                        loss /= val_loss_steps
+                        loss /= val_loss_steps # Normalize loss by the number of steps
                         val_loss_accumulation += loss.detach()
 
-                # Saving the checkpoint of the trained model
+                # Save model checkpoint every 5000 steps or at the last step
                 if step > 0 and (step % 5000 == 0 or last_step):
                     ck_path = os.path.join(log_dir, f"model_{step:05d}.pt")
                     checkpoint = {
@@ -173,48 +251,58 @@ def train_gpt():
                     }
                     torch.save(checkpoint, ck_path)
 
+                # Log validation loss
                 print(f"-->> Validation loss: {val_loss_accumulation.item():.5f}")
                 with open(log_file, "a") as f:
                     f.write(f"validation loss is : {val_loss_accumulation.item():.5f}\n")
             
-        # train the model 
-        Model.train()
+        # Training logic
+        Model.train() # Set model to training mode
         optimizer.zero_grad()
         loss_accumulation = 0.0
+
+        # Progress bar for micro-batches
         with tqdm(total=grad_accum_steps, desc=f'Step {step + 1}/{max_steps}', leave=False) as micro_progress:
             for _ in range(grad_accum_steps):
                 x, y = train_loader.next_batch()
                 x, y = x.to(device), y.to(device)
-                
+
+                # Forward pass with mixed precision
                 with torch.autocast(device_type=device, dtype=torch.bfloat16):
                     logits, loss = Model(x, y)
                 
-                loss /= grad_accum_steps
+                loss /= grad_accum_steps 
                 loss_accumulation += loss.detach()
                 loss.backward()
+
+                # Update progress bar with loss and learning rate
                 micro_progress.set_postfix({
                     'loss': f'{loss.item():.4f}',
-                    'lr': f'{CosineAnnealingLR(step):.6f}'
+                    'lr': f'{get_cosine_annealed_lr(step):.6f}'
                 })
                 micro_progress.update(1)
-        
-        norm = nn.utils.clip_grad_norm_(Model.parameters(), 1.0)
-        # Applying the CosineAnnealingLR schedular
-        lr = CosineAnnealingLR(step)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-        optimizer.step()
 
+        # Gradient clipping to track the stability
+        norm = nn.utils.clip_grad_norm_(Model.parameters(), 1.0)
+        # Applying the cosine annealing learning rate scheduler
+        lr = get_cosine_annealed_lr(step)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr # Update learning rate in optimizer
+
+        optimizer.step() # Apply gradient update
+
+        # Synchronize device for timing if CUDA or MPS is used
         if device in ['cuda', 'mps']:
             torch.cuda.synchronize() if device == 'cuda' else torch.mps.synchronize()
 
         dt = (time.time() - t0) * 1000
         tokens_per_sec = (batch_size * max_seq_length * grad_accum_steps) / (dt / 1000)
 
+        # Log training progress
         print(f"Step {step + 1}/{max_steps} - loss: {loss_accumulation.item():.5f}, norm: {norm:.4f}, "
-              f"lr: {lr:.6f}, dt: {dt:.2f}ms, tokens/sec: {tokens_per_sec:.0f}")
+            f"lr: {lr:.6f}, dt: {dt:.2f}ms, tokens/sec: {tokens_per_sec:.0f}")
         with open(log_file, "a") as f:
-                    f.write(f"--> {step}/{max_steps} train loss is : {loss_accumulation.item():.5f}\n")
+            f.write(f"--> {step}/{max_steps} train loss is : {loss_accumulation.item():.5f}\n")
 
 
 # Main script
@@ -222,18 +310,21 @@ if __name__ == "__main__":
     set_seed()
 
     batch_size, max_seq_length = 8, 128
-    total_batch_size = 524288
+    total_batch_size = 524288 # total batch size used for gradient accumulation
 
     train_loader = DataLoaderLite(batch_size, max_seq_length, "train")
     valid_loader = DataLoaderLite(batch_size, max_seq_length, "val")
 
     torch.set_float32_matmul_precision("high")
 
-    Model = GPT2(GPT_CONFIG_124M(vocab_size=50304))
+    # Instantiate the GPT-2 model
+    cfg = GPT_CONFIG_124M(vocab_size=50304)
+    Model = GPT2(cfg)
 
-    warmup_steps = 10
-    max_steps = 200
-    max_lr = 6e-4
-    min_lr = max_lr * 0.1
+    max_steps = 200         # Total number of training steps
+    warmup_steps = 10       # Number of steps for learning rate warm-up
+    max_lr = 6e-4           # Maximum learning rate
+    min_lr = max_lr * 0.1   # Minimum learning rate (10% of max_lr for cosine annealing)
 
+    # Start the training process
     train_gpt()
