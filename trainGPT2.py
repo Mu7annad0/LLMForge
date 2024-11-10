@@ -120,7 +120,8 @@ def set_seed(seed=2049):
         torch.mps.manual_seed(seed)
 
 
-def get_lr(iter):
+# Set the learning rate of each parameter group using a cosine annealing schedule.
+def CosineAnnealingLR(iter):
     if iter < warmup_steps:
         return max_lr * (iter + 1) / warmup_steps
     decay_ratio = min(1.0, (iter - warmup_steps) / (max_steps - warmup_steps))
@@ -135,6 +136,13 @@ def train_gpt():
     grad_accum_steps = total_batch_size // (batch_size * max_seq_length)
     print(f"Gradient accumulation steps: {grad_accum_steps}")
 
+    # Create a directory for logging
+    log_dir = "log"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"log.txt")
+    with open(log_file, "w") as f:
+        pass
+
     for step in tqdm(range(max_steps), desc='Training'):
         t0 = time.time()
         last_step = (step == max_steps - 1)
@@ -145,7 +153,7 @@ def train_gpt():
                 with torch.no_grad():
                     val_loss_accumulation = 0.0
                     val_loss_steps = 20
-                    with tqdm(total=grad_accum_steps, desc='Validation', leave=False) as val_progress:
+                    for _ in range(val_loss_steps):
                         x, y = valid_loader.next_batch()
                         x, y = x.to(device), y.to(device)
 
@@ -153,7 +161,21 @@ def train_gpt():
                             logits, loss = Model(x, y)
                         loss /= val_loss_steps
                         val_loss_accumulation += loss.detach()
+
+                # Saving the checkpoint of the trained model
+                if step > 0 and (step % 5000 == 0 or last_step):
+                    ck_path = os.path.join(log_dir, f"model_{step:05d}.pt")
+                    checkpoint = {
+                        'model': Model.state_dict(),
+                        'config': GPT_CONFIG_124M,
+                        'step': step,
+                        'val_loss': val_loss_accumulation.item()
+                    }
+                    torch.save(checkpoint, ck_path)
+
                 print(f"-->> Validation loss: {val_loss_accumulation.item():.5f}")
+                with open(log_file, "a") as f:
+                    f.write(f"validation loss is : {val_loss_accumulation.item():.5f}\n")
             
         # train the model 
         Model.train()
@@ -172,12 +194,13 @@ def train_gpt():
                 loss.backward()
                 micro_progress.set_postfix({
                     'loss': f'{loss.item():.4f}',
-                    'lr': f'{get_lr(step):.6f}'
+                    'lr': f'{CosineAnnealingLR(step):.6f}'
                 })
                 micro_progress.update(1)
         
         norm = nn.utils.clip_grad_norm_(Model.parameters(), 1.0)
-        lr = get_lr(step)
+        # Applying the CosineAnnealingLR schedular
+        lr = CosineAnnealingLR(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         optimizer.step()
@@ -190,6 +213,8 @@ def train_gpt():
 
         print(f"Step {step + 1}/{max_steps} - loss: {loss_accumulation.item():.5f}, norm: {norm:.4f}, "
               f"lr: {lr:.6f}, dt: {dt:.2f}ms, tokens/sec: {tokens_per_sec:.0f}")
+        with open(log_file, "a") as f:
+                    f.write(f"--> {step}/{max_steps} train loss is : {loss_accumulation.item():.5f}\n")
 
 
 # Main script
