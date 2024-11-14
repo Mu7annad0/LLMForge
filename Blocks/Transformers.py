@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from Attentions.CausalAttention import CausalAttention
-from Attentions.AttentionRoPE import MultiHeadAttentionRoPE
+from Attentions.GroupedQueryAttention import GrupedQueryAttention
 from .FeedForwards import GPTFeedForward, LlamaFeedForward
 from .Activations import GELU
 from .Normalizations import LayerNormalization, RMSNormalization
@@ -40,18 +40,12 @@ class GPTTransformer(nn.Module):
         return x
     
 
-class Llama2Transformer(nn.Module):
+class LlamaTransformer(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
         self.rms = RMSNormalization(cfg.embed_dim)
-        self.attn = MultiHeadAttentionRoPE(
-            d_in = cfg.embed_dim,
-            d_out = cfg.embed_dim,
-            context_length= cfg.context_length,
-            num_heads= cfg.n_heads,
-            dtype= cfg.dtype
-        )
+        self.attn = GrupedQueryAttention(cfg)
         self.ffn = LlamaFeedForward(cfg)
 
     def forward(self, x):
