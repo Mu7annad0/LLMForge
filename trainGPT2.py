@@ -7,76 +7,8 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from Blocks.Transformers import GPTTransformer
-from Blocks.Normalizations import LayerNormalization
 from Blocks.Configs import GPT_CONFIG_124M
-
-
-# Define the GPT2 model class
-class GPT2(nn.Module):
-    def __init__(self, cfg):
-        """
-        Initializes the GPT-2 model with the specified configuration.
-
-        Args:
-        cfg: A configuration object that includes:
-            - vocab_size (int): The size of the vocabulary.
-            - embed_dim (int): The dimensionality of the embeddings.
-            - context_length (int): The maximum length of input sequences.
-            - drop_rate (float): Dropout rate to use in the model.
-            - n_layers (int): Number of transformer layers.
-        """
-        super().__init__()
-
-        # Token and positional embedding layers
-        self.token_embed = nn.Embedding(cfg.vocab_size, cfg.embed_dim)
-        self.pos_embed = nn.Embedding(cfg.context_length, cfg.embed_dim)
-        # Dropout layer for regularization
-        self.drop = nn.Dropout(cfg.drop_rate)
-        # Stack of transformer blocks
-        self.transformer_blocks = nn.Sequential(
-            *[GPTTransformer(cfg) for _ in range(cfg.n_layers)]
-        )
-        # Layer normalization before final output
-        self.lnorm = LayerNormalization(cfg.embed_dim)
-        # Output projection layer to map to vocabulary size
-        self.output_layer = nn.Linear(cfg.embed_dim, cfg.vocab_size)
-        # Weight sharing scheme
-        self.token_embed.weight = self.output_layer.weight
-
-    def forward(self, x, targets=None):
-        """
-        Forward pass of the GPT-2 model.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, sequence_length).
-            targets (torch.Tensor, optional): Target tensor for computing loss, 
-                                           of shape (batch_size, sequence_length).
-
-        Returns:
-            logits (torch.Tensor): Output logits of shape (batch_size, sequence_length, vocab_size).
-            loss: Cross-entropy loss if targets are provided; otherwise, None.
-        """
-        B, seq_len = x.shape
-        # Create token and positional embeddings
-        token_embed = self.token_embed(x)
-        pos_embed = self.pos_embed(torch.arange(seq_len, device=x.device))
-        # Combine token and positional embeddings and apply dropout
-        x = token_embed + pos_embed
-        x = self.drop(x)
-        # Pass through the stack of transformer blocks
-        x = self.transformer_blocks(x)
-        # Apply final layer normalization
-        x = self.lnorm(x)
-        logits = self.output_layer(x)
-        # Compute loss if targets are provided
-        loss = None
-        if targets is not None:
-            loss = nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)), # Reshape logits for cross-entropy
-                targets.view(-1) # Reshape targets to match logits
-            )
-        return logits, loss
+from Models.GPT2 import GPT2
 
 
 # Define a lightweight data loader class
@@ -203,12 +135,12 @@ def get_cosine_annealed_lr(iter):
 
 
 # Training function
-def train_gpt():
+def train_gpt(Model):
     # Get the device (CPU, CUDA, or MPS) and move the model to that device
     device = get_device()
     Model.to(device)
     # Initialize the optimizer with AdamW
-    optimizer = torch.optim.AdamW(Model.parameters(), weight_decay=0.1, lr=3e-4, betas=(0.9, 0.95))
+    optimizer = Model.configure_optimizers(weight_decay=0.1, lr=6e-4, betas=(0.9, 0.95), device_type=device)
     # Calculate gradient accumulation steps based on total batch size
     grad_accum_steps = total_batch_size // (batch_size * max_seq_length)
     print(f"Gradient accumulation steps: {grad_accum_steps}")
@@ -327,4 +259,4 @@ if __name__ == "__main__":
     min_lr = max_lr * 0.1   # Minimum learning rate (10% of max_lr for cosine annealing)
 
     # Start the training process
-    train_gpt()
+    train_gpt(Model=Model)
