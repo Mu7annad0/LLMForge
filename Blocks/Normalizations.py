@@ -44,4 +44,4 @@ class RMSNormalization(nn.Module):
         # Normalize the input
         x_norm = x / rms
         # Apply the learnable scale factor
-        return x_norm * self.weight
+        return (x_norm * self.weight).to(dtype=x.dtype)
