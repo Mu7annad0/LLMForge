@@ -4,7 +4,6 @@ import math
 
 
 class PositionalEncoder(nn.Module):
-    
     def __init__(self, dim, max_seq_length):
         """
         Args:
@@ -31,36 +30,83 @@ class PositionalEncoder(nn.Module):
         return x
 
 
-class RotaryPositionalEmbedding(nn.Module):
+def precompute_rope_params(head_dim, base=10000, max_seq_length=4096, freq_config=None):
+    assert head_dim % 2 == 0, "Embedding dimention must be even"
 
-    def __init__(self, dim, base=10000):
-        """
-        RotaryPositionalEmbedding encodes sequence positions using a rotary approach, enhancing position information capture, especially for longer sequences.
+    inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
 
-        Args:
-            :param dim: The dimensionality of each attention head. Must be even.
-            :param base: Base frequency for sinusoidal embeddings (default: 10000).
-        """
-        super().__init__()
-        assert dim % 2 == 0, "Dimension of model must be even for rotary embeddings"
-        inv_freq = 1. / (base ** (torch.arange(0, dim, 2).float() / dim))
-        self.register_buffer('inv_freq', inv_freq)
+    # for Llama >= 3
+    if freq_config is not None:
+        low_freq_wavelen = freq_config["original_context_length"] / freq_config["low_freq_factor"]
+        high_freq_wavelen = freq_config["original_context_length"] / freq_config["high_freq_factor"]
 
-    def forward(self, x, max_seq_length=None):
-        if max_seq_length is None:
-            max_seq_length = x.size(1)
-            
-        # Compute position encodings --> [max_seq_length, dim // 2]
-        t = torch.arange(max_seq_length, device=x.device).type_as(self.inv_freq)
-        freqs = torch.einsum('i,j->ij', t, self.inv_freq)
+        wavelen = 2 * torch.pi / inv_freq
 
-        # Duplicate frequencies to match the dimensionality of x --> [max_seq_length, dim]
-        emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
+        inv_freq_llama = torch.where(
+            wavelen > low_freq_wavelen, inv_freq / freq_config["factor"], inv_freq
+        )
 
-        # Split x into two parts for even and odd indices, and embedding into sin and cosine parts
-        x1, x2 = x[..., ::2], x[..., 1::2]
-        cos = emb[..., None, 1::2].cos()
-        sin = emb[..., None, ::2].sin()
+        smooth_factor = (freq_config["original_context_length"] / wavelen - freq_config["low_freq_factor"]) / (
+            freq_config["high_freq_factor"] - freq_config["low_freq_factor"]
+        )
 
-        x_out = torch.cat((x1 * cos - x2 * sin, x1 * sin + x2 * cos), dim=-1) # Apply the rotary encoding
-        return x_out # --> [batch_size, max_seq_length, dim]
+        smoothed_inv_freq = (
+            (1 - smooth_factor) * (inv_freq / freq_config["factor"]) + smooth_factor * inv_freq
+        )
+
+        is_medium_freq = (wavelen <= low_freq_wavelen) & (wavelen >= high_freq_wavelen)
+        inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
+        inv_freq = inv_freq_llama
+
+    positions = torch.arange(max_seq_length)
+
+    angles = positions[:, None] * inv_freq[None, :]
+    angles = torch.cat([angles, angles], dim=1)
+
+    cos = torch.cos(angles)[:, :head_dim]  # Slice to match `dim`
+    sin = torch.sin(angles)[:, :head_dim]  # Slice to match `dim`
+    return cos, sin
+
+
+def apply_rope(x, cos, sin):
+    # x.shape: (bs, n_heads, seqlen, head_dim)
+    bs, num_heads, seqlen, head_dim = x.shape
+    
+    assert head_dim % 2 == 0, "Head dimension must be even"
+    
+    # Split x into first half and second half
+    x1 = x[..., : head_dim // 2]  # First half
+    x2 = x[..., head_dim // 2 :]  # Second half
+
+    # Adjust sin and cos shapes
+    cos = cos[:seqlen, :head_dim].unsqueeze(0).unsqueeze(0)
+    sin = sin[:seqlen, :head_dim].unsqueeze(0).unsqueeze(0)
+
+    # Apply the rotary transformation
+    rotated = torch.cat((-x2, x1), dim=-1)
+    x_rotated = (x * cos) + (rotated * sin)
+
+    return x_rotated.to(dtype=x.dtype)
+
+
+# batch_size = 2
+# num_heads = 4
+# head_dim = 16
+
+# # Instantiate RoPE parameters
+# cos, sin = precompute_rope_params(
+#     head_dim=head_dim,
+#     base=10000,
+#     max_seq_length=10000
+# )
+
+# # Dummy query and key tensors
+# torch.manual_seed(123)
+# queries = torch.randn(batch_size, num_heads, 10000, head_dim)
+# keys = torch.randn(batch_size, num_heads, 10000, head_dim)
+
+# # Apply rotary position embeddings
+# queries_rot = apply_rope(queries, cos, sin)
+# keys_rot = apply_rope(keys, cos, sin)
+
+# print(f"{queries_rot}")
