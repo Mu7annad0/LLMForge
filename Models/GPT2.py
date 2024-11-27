@@ -1,6 +1,8 @@
 import inspect
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import tiktoken
 
 from Blocks.Transformers import GPTTransformer
 from Blocks.Normalizations import LayerNormalization
@@ -116,3 +118,68 @@ class GPT2(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=lr, betas=betas, **extra_args)
 
         return optimizer
+
+    def generate(self, 
+                 prompt: str, 
+                 tokenizer: tiktoken.Encoding = None, 
+                 max_new_tokens: int = 50, 
+                 temperature: float = 1.0, 
+                 top_k: int = 50
+    ) -> str:
+        """
+        Generate text using the GPT-2 model.
+
+        Args:
+            prompt (str): Input text prompt to start generation.
+            tokenizer (tiktoken.Encoding): Tokenizer for encoding/decoding.
+            max_new_tokens (int): Maximum number of new tokens to generate.
+            temperature (float): Sampling temperature for controlling randomness.
+            top_k (int): Number of top tokens to consider for sampling.
+
+        Returns:
+            str: Generated text based on the input prompt.
+        """
+        # Use default tiktoken GPT-2 tokenizer if not provided
+        if tokenizer is None:
+            tokenizer = tiktoken.get_encoding("gpt2")
+        
+        self.eval()
+        
+        # Encode the input prompt
+        input_ids = tokenizer.encode(prompt)
+        
+        # Ensure input doesn't exceed context length
+        input_ids = input_ids[-self.pos_embed.num_embeddings:]
+        input_ids = torch.tensor([input_ids], dtype=torch.long, device=next(self.parameters()).device)
+
+        # Generate tokens
+        for _ in range(max_new_tokens):
+            # Slice input to fit context length if needed
+            x = input_ids[:, -self.pos_embed.num_embeddings:]
+
+            # Get logits for the current sequence
+            with torch.no_grad():
+                logits, _ = self(x)
+                logits = logits[:, -1, :]
+                logits = logits / temperature
+
+                # Apply top-k filtering
+                if top_k > 0:
+                    top_k_values, top_k_indices = torch.topk(logits, top_k, dim=-1)
+                    
+                    # Create a mask to filter out tokens outside top-k
+                    logits_mask = torch.full_like(logits, float('-inf'))
+                    logits_mask.scatter_(1, top_k_indices, top_k_values)
+                    logits = logits_mask
+
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+
+                # Append sampled token to input sequence
+                input_ids = torch.cat([input_ids, next_token], dim=-1)
+
+        # Decode the generated sequence
+        generated_ids = input_ids[0].tolist()
+        generated_text = tokenizer.decode(generated_ids)
+
+        return generated_text
