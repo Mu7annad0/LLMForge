@@ -13,12 +13,20 @@ class GPT_CONFIG_124M:
 
 
 @dataclass
-class Llama2_CONFIG_7B:
-    vocab_size: int = 32000
-    context_length: int = 4096
+class Llama31_CONFIG_8B:
+    vocab_size: int = 128256
+    context_length: int = 131_072
     embed_dim: int = 4096
-    n_heads: int = 32
+    num_heads: int = 32
+    num_kv_heads: int = 8
     n_layers: int = 32
     hidden_dim: int = 11008
     dtype = torch.bfloat16
-    
+    flash = True
+    cache=True
+    rope_freq = {
+        "factor":0.8,
+        "low_freq_factor": 1.0,
+        "high_freq_factor": 4.0,
+        "original_context_length": 8192,
+    }
