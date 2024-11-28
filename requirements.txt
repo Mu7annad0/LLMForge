@@ -1,0 +1,4 @@
+python==3.11.5
+tiktoken==0.8.0
+torch==2.5.1
+tqdm==4.66.1
