@@ -119,7 +119,7 @@ class Llama(nn.Module):
 # generated_text = model.generate(
 #     text=prompt,
 #     tokenizer=tokenizer,
-#     max_new_tokens=1,
+#     max_new_tokens=10,
 #     temperature=0.8,
 #     top_k=4,
 # )
