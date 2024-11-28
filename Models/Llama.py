@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from Blocks.Transformers import LlamaTransformer
 from Blocks.Normalizations import RMSNormalization
-from Blocks.Configs import Llama2_CONFIG_7B
+from Blocks.Configs import Llama31_CONFIG_8B
 from tokenizer import Tokenizer
 
 
@@ -110,7 +110,7 @@ class Llama(nn.Module):
         return generated_text
 
 
-# cfg = Llama2_CONFIG_7B()
+# cfg = Llama31_CONFIG_8B()
 # tokenizer = Tokenizer("Llama 3.1 8B tokenizer.model")
 # model = Llama(cfg)
 # model.tokenizer = tokenizer  # Make sure to set the tokenizer as an attribute
@@ -119,7 +119,7 @@ class Llama(nn.Module):
 # generated_text = model.generate(
 #     text=prompt,
 #     tokenizer=tokenizer,
-#     max_new_tokens=3,
+#     max_new_tokens=1,
 #     temperature=0.8,
 #     top_k=4,
 # )
