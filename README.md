@@ -22,7 +22,7 @@ This project is a collection of my implementations of popular language models an
 │   ├── GPT2.py                  # GPT-2 model implementation
 │   └── Llama.py                 # LLaMA model implementation
 |
-├── tokenizer.py                 # Tokenizer implementation
+├── tokenizer.py                 # Llama 3 tokenizer implementation
 └── trainGPT2.py                 # Training script for GPT-2 model
 ```
 
@@ -49,7 +49,6 @@ This project is a collection of my implementations of popular language models an
 
 1. **LLaMA Training Implementation**
    - Develop a comprehensive training pipeline for the LLaMA model
-   - Implement efficient training strategies for large-scale models
    - Add support for distributed training across multiple GPUs
 
 2. **Model Fine-tuning**
