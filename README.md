@@ -1,6 +1,6 @@
 # LLM FORGE (Building Large Language Models from Scratch)
 
-This project is a collection of my implementations of popular language models and attention mechanisms, including GPT-2 and LLaMA architectures, built using PyTorch. The project provides modular and educational implementations of transformer-based language models.
+This project is a collection of my implementations of popular language models and attention mechanisms, including GPT-2 and LLaMA architectures, built using PyTorch.
 
 ## Project Structure
 
@@ -14,7 +14,7 @@ This project is a collection of my implementations of popular language models an
 |   ├── Activations.py           # Activation functions (GELU, SiLU)
 │   ├── Configs.py               # Model configurations
 |   ├── FeedForwards.py          # Feed forward blocks for GPT and Llama models
-│   ├── Normalizations.py        # Layer and RMA Normalization implementations
+│   ├── Normalizations.py        # Layer and RMS Normalization implementations
 |   ├── Positionals.py           # Positonal encoding and RoPE implementations
 │   └── Transformers.py          # Transformer blocks for GPT2 and Llama
 |
