@@ -34,6 +34,8 @@ This project is a collection of my implementations of popular language models an
 - Modular design with separate blocks for transformers, normalizations, Postionals, and configurations
 - Training script for GPT-2 model
 
+## Papers Implemented
+- [DIFFERENTIAL TRANSFORMER](https://arxiv.org/abs/2410.05258): [MyCode](https://github.com/Mu7annad0/LLMForge/blob/main/Attentions/DifferntialAttention.py)
 
 ## Training GPT-2
 
