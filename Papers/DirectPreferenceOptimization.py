@@ -23,7 +23,8 @@ class DPO:
             policy_rejected_logprobs: Log probabilities of the policy model for the rejected responses.
             reference_chosen_logprobs: Log probabilities of the reference model for the chosen responses.
             reference_rejected_logprobs: Log probabilities of the reference model for the rejected responses.
-            beta: Temperature parameter for the DPO loss; typically something in the range of 0.1 to 0.5. We ignore the reference model as beta -> 0.
+            beta: Temperature parameter for the DPO loss; typically something in the range of 0.1 to 0.5.
+            We ignore the reference model as beta -> 0.
         Returns:
             torch.Tensor: The DPO loss for the batch of policy and reference model log probabilities."""
 
@@ -112,3 +113,45 @@ class DPO:
             beta = beta
         )
         return loss
+
+
+    def compute_dpo_loss_loader(self, data_loader, beta, num_batches=None):
+        """Apply compute_dpo_loss_batch to a whole data loader"""
+        total_loss = 0.0
+        if len(data_loader) == 0:
+            return float("nan")
+        elif num_batches is None:
+            num_batches = len(data_loader)
+        else:
+            num_batches = min(num_batches, len(data_loader))
+
+        for i, batch in enumerate(data_loader):
+            if i < num_batches:
+                loss = self.compute_dpo_loss_batch(batch, beta)
+                total_loss += loss.item()
+            else:
+                break
+        total_loss /= num_batches
+        return total_loss
+
+
+    def eval_dpo_loss_loader(self, train_loader, val_loader, beta, eval_iter):
+        """Compute the DPO loss for the training and validation dataset"""
+        self.policy_model.eval()
+        with torch.no_grad():
+            train_loss = self.compute_dpo_loss_loader(
+                data_loader=train_loader,
+                beta = beta,
+                num_batches=eval_iter
+            )
+            val_loss = self.compute_dpo_loss_loader(
+                data_loader=val_loader,
+                beta = beta,
+                num_batches=eval_iter
+            )
+        res = {
+            "train_loss": train_loss,
+            "val_loss": val_loss
+        }
+        self.policy_model.train()
+        return res
