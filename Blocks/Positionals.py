@@ -89,6 +89,53 @@ def apply_rope(x, cos, sin):
     return x_rotated.to(dtype=x.dtype)
 
 
+class RotaryPositionEmbedding(nn.Module):
+    def __init__(self, dim, max_seq_len=2048):
+        super().__init__()
+        self.dim = dim
+        self.max_seq_len = max_seq_len
+        
+        # Create rotation matrix coefficients
+        freqs = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
+        positions = torch.arange(max_seq_len).float()
+        phases = torch.outer(positions, freqs)
+        
+        self.register_buffer("cos", torch.cos(phases))
+        self.register_buffer("sin", torch.sin(phases))
+        
+    def forward(self, x, seq_len=None):
+        """
+        Apply rotary position embedding to input tensor
+        
+        Args:
+            x: [..., seq_len, dim] - Tensor with arbitrary leading dimensions
+            seq_len: Optional override for sequence length
+            
+        Returns:
+            Tensor with position encoding applied
+        """
+        # Unpack shape with flexible batch dimensions
+        *batch_dims, seq_len, dim = x.shape
+        assert dim == self.dim, f"Expected dim={self.dim}, got {dim}"
+        
+        # Get the cos and sin values for the current sequence
+        cos = self.cos[:seq_len].view(1, seq_len, dim//2).expand(*batch_dims, seq_len, dim//2)
+        sin = self.sin[:seq_len].view(1, seq_len, dim//2).expand(*batch_dims, seq_len, dim//2)
+        
+        # Split x into even and odd dimensions directly
+        x_even = x[..., 0::2]  # Take even-indexed elements along the last dimension
+        x_odd = x[..., 1::2]   # Take odd-indexed elements along the last dimension
+        
+        # Apply rotation
+        x_rotated_even = x_even * cos - x_odd * sin
+        x_rotated_odd = x_even * sin + x_odd * cos
+        
+        # Combine rotated values back into the original shape
+        x_rotated = torch.empty_like(x)
+        x_rotated[..., 0::2] = x_rotated_even
+        x_rotated[..., 1::2] = x_rotated_odd
+        return x_rotated
+
 # batch_size = 2
 # num_heads = 4
 # head_dim = 16
